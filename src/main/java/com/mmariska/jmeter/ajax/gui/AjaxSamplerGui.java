@@ -42,7 +42,8 @@ public class AjaxSamplerGui extends AbstractSamplerGui {
     @Override
     public TestElement createTestElement() {
         AjaxSampler sampler = new AjaxSampler();
-//        sampler.setComment("To Values fill method;;;url;;;data;;;headers");
+        objectTableModel.clearData();
+//        logger.info("createTestElement sampler " + sampler + " tableData.rowcount=" + objectTableModel.getRowCount());
         modifyTestElement(sampler);
         return sampler;
     }
@@ -51,8 +52,9 @@ public class AjaxSamplerGui extends AbstractSamplerGui {
     public void modifyTestElement(TestElement sampler) {
         super.configureTestElement(sampler);
         AjaxSampler ajaxSampler = (AjaxSampler) sampler;
-        ajaxSampler.setArguments((Arguments) argsPanel.createTestElement());
-
+        final Arguments modifiedArgs = (Arguments) argsPanel.createTestElement();
+//        logger.info("modifyTestElement sampler " + sampler + " store args= " + modifiedArgs);
+        ajaxSampler.setArguments(modifiedArgs);
     }
 
     @Override
@@ -60,16 +62,17 @@ public class AjaxSamplerGui extends AbstractSamplerGui {
         super.configure(el);
         if (el instanceof AjaxSampler) {
             objectTableModel.clearData();
-            PropertyIterator iter = ((AjaxSampler) el).getArguments().iterator();
-            while (iter.hasNext()) {
-                objectTableModel.addRow((Argument) iter.next().getObjectValue());
+            final Arguments arguments = ((AjaxSampler) el).getArguments();
+            if (arguments != null) {
+//                logger.info("configure el=" + el + " args=" + arguments);
+                PropertyIterator iter = arguments.iterator();
+                while (iter.hasNext()) {
+                    objectTableModel.addRow((Argument) iter.next().getObjectValue());
+                }
             }
         }
     }
-    
-    
-    
-    
+
     private void init() {
         setLayout(new BorderLayout());
         setBorder(makeBorder());
@@ -96,7 +99,6 @@ public class AjaxSamplerGui extends AbstractSamplerGui {
         //this is mapping values from GUI to Argument Class
         argsPanel = new ArgumentsPanel("AJAX Request Details", null, true, false, objectTableModel);
         return argsPanel;
-
     }
 
 }

@@ -19,22 +19,22 @@ import org.apache.log.Logger;
 
 /**
  * This is custom sampler for parallel AJAX/XHR calls
- * 
+ *
  * @author mmariska
  * @version 1.0.0
  */
 public class AjaxSampler extends AbstractSampler {
-    private static final Logger logger = LoggingManager.getLoggerForClass();
 
-    private static final String ARGUMENTS = "AjaxSampler.arguments";
+    private static final Logger logger = LoggingManager.getLoggerForClass();
     private static final String NEWLINE = System.getProperty("line.separator");
+    private static final String ARGUMENTS = "AjaxSampler.arguments";
 
     @Override
     public SampleResult sample(Entry entry) {
         final JavaSamplerContext jctx = new JavaSamplerContext(getArguments());
         Map<String, String> args = getArgsWithExpressions(jctx);
         Collection<AjaxResult> results = new ArrayList<AjaxResult>();
-        
+
         SampleResult rv = new SampleResult();
         rv.setSampleLabel(getName());
         rv.setDataType(SampleResult.TEXT);
@@ -125,7 +125,7 @@ public class AjaxSampler extends AbstractSampler {
 //                args.put(a.getName(), a.getValue());
 //            }
 //        }
-        if(logger.isDebugEnabled()) {
+        if (logger.isDebugEnabled()) {
             logger.debug("ARGS: " + args.toString());
         }
         return args;

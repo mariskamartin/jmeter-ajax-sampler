@@ -1,18 +1,26 @@
 package com.mmariska.jmeter.ajax;
 
-import com.mmariska.jmeter.ajax.impl.AjaxExecutor;
+import com.mmariska.jmeter.ajax.impl.AjaxCall;
 import com.mmariska.jmeter.ajax.impl.AjaxResult;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.protocol.java.sampler.JavaSamplerContext;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.property.TestElementProperty;
+import org.apache.jmeter.threads.JMeterContext;
 
 import org.apache.jorphan.logging.LoggingManager;
 import org.apache.log.Logger;
@@ -25,7 +33,9 @@ import org.apache.log.Logger;
  */
 public class AjaxSampler extends AbstractSampler {
 
-    private static final Logger logger = LoggingManager.getLoggerForClass();
+    private static final Logger log = LoggingManager.getLoggerForClass();
+    private static final String MAX_POOLSIZE_VARNAME = "AjaxSampler.max-concurrent-threads";
+    private static final int MAX_CONCURRENT_CHROME_POOL_SIZE = 6;
     private static final String NEWLINE = System.getProperty("line.separator");
     private static final String ARGUMENTS = "AjaxSampler.arguments";
 
@@ -34,20 +44,22 @@ public class AjaxSampler extends AbstractSampler {
         final JavaSamplerContext jctx = new JavaSamplerContext(getArguments());
         Map<String, String> args = getArgsWithExpressions(jctx);
         Collection<AjaxResult> results = new ArrayList<AjaxResult>();
+        final int concurrentThreadPoolSize = getThreadPoolSize();
+        if (log.isDebugEnabled()) log.debug("Concurent thread pool size = " + concurrentThreadPoolSize);
 
         SampleResult rv = new SampleResult();
         rv.setSampleLabel(getName());
         rv.setDataType(SampleResult.TEXT);
         rv.sampleStart();
         try {
-            results = AjaxExecutor.execute(args, getThreadContext(), entry);
+            results = execute(args, getThreadContext(), entry, concurrentThreadPoolSize);
             boolean hasError = hasResultsErrors(results);
             rv.setSuccessful(!hasError);
             rv.setResponseMessage("AJAX Requests Execution was" + (hasError ? "n't" : "") + " successful");
         } catch (Exception ex) {
-            logger.error(ex.getMessage());
+            log.error(ex.getMessage());
             rv.setSuccessful(false);
-            rv.setResponseMessage("AJAX Requests Execution failed in java code");
+            rv.setResponseMessage("AJAX Requests Execution failed in java code. \n" + ex.getMessage());
         } finally {
             rv.sampleEnd();
         }
@@ -55,12 +67,18 @@ public class AjaxSampler extends AbstractSampler {
         StringBuilder datawriter = new StringBuilder();
         for (AjaxResult result : results) {
             datawriter.append(result.getUrl())
+                    .append(" - elapsed [ms] = ").append(result.getElapsedTime())
                     .append(" - result = ").append(result.getResult())
-                    .append(" - elapsed time [ms] = ").append(result.getElapsedTime())
+                    .append(" - resp. bytes = ").append(result.getResponseByteSize())
                     .append(NEWLINE);
         }
         rv.setResponseData(datawriter.toString(), "UTF-8");
         return rv;
+    }
+
+    private int getThreadPoolSize() {
+        final String poolSize = this.getThreadContext().getVariables().get(MAX_POOLSIZE_VARNAME);
+        return poolSize == null ? MAX_CONCURRENT_CHROME_POOL_SIZE : Integer.valueOf(poolSize);
     }
 
     public Arguments getArguments() {
@@ -116,6 +134,7 @@ public class AjaxSampler extends AbstractSampler {
             String name = (String) contextArguments.next();
             args.put(name, jctx.getParameter(name));
         }
+// RAW arguments
 //        final Arguments arguments = getArguments();
 //        for (int i = 0; i < arguments.getArgumentCount(); i++) {
 //            Argument a = arguments.getArgument(i);
@@ -125,9 +144,27 @@ public class AjaxSampler extends AbstractSampler {
 //                args.put(a.getName(), a.getValue());
 //            }
 //        }
-        if (logger.isDebugEnabled()) {
-            logger.debug("ARGS: " + args.toString());
+        if (log.isDebugEnabled()) {
+            log.debug("ARGS: " + args.toString());
         }
         return args;
+    }
+
+    private Collection<AjaxResult> execute(Map<String, String> args, JMeterContext jmeterCtx, Entry e, int concurrentThreadPoolSize) throws InterruptedException, ExecutionException {
+        Collection<AjaxResult> results = new LinkedList<AjaxResult>();
+        final int argsSize = args.values().size();
+        ExecutorService executorService = Executors.newFixedThreadPool(Math.min(argsSize, concurrentThreadPoolSize));
+        List<Future<AjaxResult>> ajaxCallsFutures = new ArrayList<Future<AjaxResult>>(argsSize);
+        for (Map.Entry<String, String> entry : args.entrySet()) {
+            Future<AjaxResult> future = executorService.submit(new AjaxCall(entry.getKey(), entry.getValue(), jmeterCtx, e));
+            ajaxCallsFutures.add(future);
+        }
+        for (Future<AjaxResult> future : ajaxCallsFutures) {
+            AjaxResult singleResult = future.get();
+            results.add(singleResult);
+        }
+        executorService.shutdown();
+        executorService.awaitTermination(20, TimeUnit.MINUTES);
+        return results;
     }
 }

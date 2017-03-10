@@ -1,15 +1,14 @@
 package com.mmariska.jmeter.ajax.impl;
 
-import java.util.Date;
-
 
 public class AjaxResult {
 
     public static final int RESULT_OK = 200;
     public static final int ERROR_RESULT = -1;
-    protected long elapsedTime;
+    private long elapsedTimeMs;
     private int result;
     private String url;
+    private int responseByteSize;
 
     public String getUrl() {
         return url;
@@ -32,10 +31,18 @@ public class AjaxResult {
     }
 
     public long getElapsedTime() {
-        return elapsedTime;
+        return elapsedTimeMs;
     }
 
-    protected void finish(Date start) {
-        this.elapsedTime = (new Date()).getTime() - start.getTime();
+    protected void finish(long start) {
+        this.elapsedTimeMs = (System.nanoTime() - start) / 1000000;
+    }
+
+    public int getResponseByteSize() {
+        return responseByteSize;
+    }
+
+    void setResponseByteSize(int byteSize) {
+        this.responseByteSize = byteSize;
     }
 }

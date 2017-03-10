@@ -1,5 +1,6 @@
 package com.mmariska.jmeter.ajax.impl;
 
+import java.io.BufferedReader;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jorphan.logging.LoggingManager;
@@ -7,9 +8,9 @@ import org.apache.log.Logger;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Date;
 import java.util.concurrent.Callable;
 
 public class AjaxCall implements Callable<AjaxResult> {
@@ -25,7 +26,7 @@ public class AjaxCall implements Callable<AjaxResult> {
         this.ctx = ctx;
     }
 
-    private AjaxResult singleErrorResult(Date start) {
+    private AjaxResult singleErrorResult(long start) {
         AjaxResult singleResult = new AjaxResult();
         singleResult.setResult(AjaxResult.ERROR_RESULT);
         singleResult.finish(start);
@@ -34,10 +35,11 @@ public class AjaxCall implements Callable<AjaxResult> {
 
     private AjaxResult execute(String method, String url, String postData, String headers, JMeterContext ctx) throws IOException {
         AjaxResult result = new AjaxResult();
-        if(logger.isDebugEnabled()) logger.debug("Executing " + method + " request to URL: " + url + " (headers: " + headers + ") (data: " + postData + ")");
+        if (logger.isDebugEnabled()) {
+            logger.debug("Start Executing " + method + " request to URL: " + url + " (headers: " + headers + ") (data: " + postData + ")");
+        }
         result.setUrl(url);
-        Date start = new Date();
-        final long s = System.currentTimeMillis();
+        final long start = System.nanoTime();
         HttpURLConnection connection = (HttpURLConnection) (new URL(url))
                 .openConnection();
 //        connection.setReadTimeout(TIMEOUT); //for long request from pricemart it is failing on timeout
@@ -62,8 +64,6 @@ public class AjaxCall implements Callable<AjaxResult> {
 ////                logger.info("added headers from Manager. " + header.getName() + ": " + header.getStringValue());
 ////            }
 //        }
-
-
         if (method.equals("GET")) {
             connection.connect();
         } else {
@@ -82,30 +82,44 @@ public class AjaxCall implements Callable<AjaxResult> {
             connection.setRequestProperty("charset", "utf-8");
             connection.setRequestProperty("Content-Length", "" + Integer.toString(postData.getBytes().length));
             connection.setUseCaches(false);
-            DataOutputStream wr = new DataOutputStream(connection.getOutputStream());
-            wr.writeBytes(postData);
-            wr.flush();
-            wr.close();
+            try (DataOutputStream wr = new DataOutputStream(connection.getOutputStream())) {
+                wr.writeBytes(postData);
+                wr.flush();
+                wr.close();
+            }
         }
 
         result.setResult(connection.getResponseCode());
+
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+            StringBuilder stringBuilder = new StringBuilder();
+            String decodedString;
+            while ((decodedString = in.readLine()) != null) {
+                stringBuilder.append(decodedString);
+            }
+            in.close();
+            result.setResponseByteSize(stringBuilder.toString().getBytes().length);
+        }
+
         connection.disconnect();
         result.finish(start);
-        logger.info("Executed " + method + " request to URL: " + url + " with result: " + result.getResult() + " elapsed [ms] = " + (System.currentTimeMillis() - s));
+        if (logger.isDebugEnabled()) {
+            logger.debug("Executed " + method + " request to URL: " + url + " with result: " + result.getResult() + " elapsed [ms] = " + result.getElapsedTime());
+        }
 
         return result;
     }
 
     public AjaxResult call() throws Exception {
         AjaxResult singleResult = null;
-        final Date start = new Date();
+        final long start = System.nanoTime();
         try {
             final String[] split = data.split(";;;");
             String method = split[0];
-            String url =  split.length > 1 ? split[1] : null;
+            String url = split.length > 1 ? split[1] : null;
             String postData = split.length > 2 ? split[2] : null;
             String headers = split.length > 3 ? split[3] : null;
-            
+
             singleResult = execute(method, url, postData, headers, ctx);
         } catch (IOException e) {
             singleResult = singleErrorResult(start);

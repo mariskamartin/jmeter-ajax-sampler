@@ -26,31 +26,32 @@ public class AjaxCall implements Callable<AjaxResult> {
         this.ctx = ctx;
     }
 
-    private AjaxResult singleErrorResult(long start) {
-        AjaxResult singleResult = new AjaxResult();
-        singleResult.setResult(AjaxResult.ERROR_RESULT);
-        singleResult.finish(start);
-        return singleResult;
-    }
-
-    private AjaxResult execute(String method, String url, String postData, String headers, JMeterContext ctx) throws IOException {
+    private AjaxResult execute(String method, String url, String postData, String headers, JMeterContext ctx) {
         AjaxResult result = new AjaxResult();
         if (logger.isDebugEnabled()) {
             logger.debug("Start Executing " + method + " request to URL: " + url + " (headers: " + headers + ") (data: " + postData + ")");
         }
         result.setUrl(url);
         final long start = System.nanoTime();
-        HttpURLConnection connection = (HttpURLConnection) (new URL(url))
-                .openConnection();
-//        connection.setReadTimeout(TIMEOUT); //for long request from pricemart it is failing on timeout
-        connection.setConnectTimeout(TIMEOUT);
+        try {
+            HttpURLConnection connection = (HttpURLConnection) (new URL(url))
+                    .openConnection();
+            connection.setConnectTimeout(TIMEOUT);
+            // connection.setReadTimeout(TIMEOUT); //for long request from pricemart it is failing on timeout
+            //setup headers
+            if (headers != null && !headers.isEmpty()) {
+                final String[] splitted = headers.split(";");
+                for (int i = 0; i < splitted.length; i = i + 2) {
+                    connection.setRequestProperty(splitted[i], splitted[i + 1]);
+                }
+            }
+
 //        CookieManager cookieManager = (CookieManager) ctx.getCurrentSampler().getProperty("HTTPSampler.cookie_manager").getObjectValue();
 //        if (cookieManager != null) {
 //            for (int i = 0; i < cookieManager.getCookieCount(); i++) {
 //                connection.addRequestProperty("Cookie", cookieManager.get(i).getName() + "=" + cookieManager.get(i).getValue());
 //            }
 //        }
-
 //        final JMeterProperty headersProp = ctx.getProperty("HeaderManager.headers");
 //        if(headersProp != null) {
 //            List o = (List) headersProp.getObjectValue();
@@ -64,67 +65,58 @@ public class AjaxCall implements Callable<AjaxResult> {
 ////                logger.info("added headers from Manager. " + header.getName() + ": " + header.getStringValue());
 ////            }
 //        }
-        if (method.equals("GET")) {
-            connection.connect();
-        } else {
-            connection.setDoOutput(true);
-            connection.setDoInput(true);
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod(method);
-
-            if (headers != null && !headers.isEmpty()) {
-                final String[] splitted = headers.split(";");
-                for (int i = 0; i < splitted.length; i = i + 2) {
-                    connection.setRequestProperty(splitted[i], splitted[i + 1]);
+            if (method.equals("GET")) {
+                connection.connect();
+            } else {
+                connection.setDoOutput(true);
+                connection.setDoInput(true);
+                connection.setInstanceFollowRedirects(false);
+                connection.setRequestMethod(method);
+                connection.setRequestProperty("charset", "utf-8");
+                connection.setRequestProperty("Content-Length", "" + Integer.toString(postData.getBytes().length));
+                connection.setUseCaches(false);
+                try (DataOutputStream wr = new DataOutputStream(connection.getOutputStream())) {
+                    wr.writeBytes(postData);
+                    wr.flush();
+                    wr.close();
                 }
             }
 
-            connection.setRequestProperty("charset", "utf-8");
-            connection.setRequestProperty("Content-Length", "" + Integer.toString(postData.getBytes().length));
-            connection.setUseCaches(false);
-            try (DataOutputStream wr = new DataOutputStream(connection.getOutputStream())) {
-                wr.writeBytes(postData);
-                wr.flush();
-                wr.close();
+            result.setResult(connection.getResponseCode());
+
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                StringBuilder stringBuilder = new StringBuilder();
+                String decodedString;
+                while ((decodedString = in.readLine()) != null) {
+                    stringBuilder.append(decodedString);
+                }
+                in.close();
+                result.setResponseByteSize(stringBuilder.toString().getBytes().length);
             }
-        }
 
-        result.setResult(connection.getResponseCode());
-
-        try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-            StringBuilder stringBuilder = new StringBuilder();
-            String decodedString;
-            while ((decodedString = in.readLine()) != null) {
-                stringBuilder.append(decodedString);
+            connection.disconnect();
+            if (logger.isDebugEnabled()) {
+                logger.debug("Executed " + method + " request to URL: " + url + " with result: " + result.getResult() + " elapsed [ms] = " + result.getElapsedTime());
             }
-            in.close();
-            result.setResponseByteSize(stringBuilder.toString().getBytes().length);
+        } catch (Exception e) {
+            logger.warn(e.getMessage(), e);
+        } finally {
+            result.finish(start);
         }
-
-        connection.disconnect();
-        result.finish(start);
-        if (logger.isDebugEnabled()) {
-            logger.debug("Executed " + method + " request to URL: " + url + " with result: " + result.getResult() + " elapsed [ms] = " + result.getElapsedTime());
-        }
-
         return result;
     }
 
     public AjaxResult call() throws Exception {
         AjaxResult singleResult = null;
         final long start = System.nanoTime();
-        try {
-            final String[] split = data.split(";;;");
-            String method = split[0];
-            String url = split.length > 1 ? split[1] : null;
-            String postData = split.length > 2 ? split[2] : null;
-            String headers = split.length > 3 ? split[3] : null;
 
-            singleResult = execute(method, url, postData, headers, ctx);
-        } catch (IOException e) {
-            singleResult = singleErrorResult(start);
-        }
-        return singleResult;
+        final String[] split = data.split(";;;");
+        String method = split[0];
+        String url = split.length > 1 ? split[1] : null;
+        String postData = split.length > 2 ? split[2] : null;
+        String headers = split.length > 3 ? split[3] : null;
+
+        return execute(method, url, postData, headers, ctx);
     }
 
 }

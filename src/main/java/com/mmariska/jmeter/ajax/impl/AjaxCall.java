@@ -12,6 +12,8 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.Callable;
+import org.apache.jmeter.protocol.http.control.CookieManager;
+import org.apache.jmeter.protocol.http.control.HeaderManager;
 
 public class AjaxCall implements Callable<AjaxResult> {
 
@@ -20,10 +22,18 @@ public class AjaxCall implements Callable<AjaxResult> {
     private static final int TIMEOUT = 10000;
     private String data;
     private JMeterContext ctx;
+    private CookieManager cookieManager;
+    private HeaderManager headerManager;
 
     public AjaxCall(String name, String data, JMeterContext ctx, Entry e) {
         this.data = data;
         this.ctx = ctx;
+    }
+
+    public AjaxCall(String key, String value, JMeterContext jmeterCtx, Entry e, CookieManager cookieManager, HeaderManager headerManager) {
+        this(key,value, jmeterCtx, e);
+        this.cookieManager = cookieManager;
+        this.headerManager = headerManager;
     }
 
     private AjaxResult execute(String method, String url, String postData, String headers, JMeterContext ctx) {
@@ -46,25 +56,27 @@ public class AjaxCall implements Callable<AjaxResult> {
                 }
             }
 
-//        CookieManager cookieManager = (CookieManager) ctx.getCurrentSampler().getProperty("HTTPSampler.cookie_manager").getObjectValue();
-//        if (cookieManager != null) {
-//            for (int i = 0; i < cookieManager.getCookieCount(); i++) {
-//                connection.addRequestProperty("Cookie", cookieManager.get(i).getName() + "=" + cookieManager.get(i).getValue());
+//            CookieManager cookieManager = (CookieManager) ctx.getCurrentSampler().getProperty("HTTPSampler.cookie_manager").getObjectValue();
+            if (this.cookieManager != null) {
+                StringBuilder csb = new StringBuilder();
+                for (int i = 0; i < cookieManager.getCookieCount(); i++) {
+                    if (csb.length() > 0) csb.append(";");
+                    csb.append(cookieManager.get(i).getName())
+                            .append("=")
+                            .append(cookieManager.get(i).getValue());
+                }
+                connection.addRequestProperty("Cookie", csb.toString());
+            }
+            //not working now
+//            if(this.headerManager != null) {
+//                for (int i = 0; i < headerManager.getColumnCount(); i++) {
+//                    logger.info("hm " + headerManager.get(i).getName() + "=" + headerManager.get(i).getValue());
+//                }
+//                for (int i = 0; i < headerManager.getHeaders().size(); i++) {
+//                    logger.info("hm " + headerManager.getHeaders().get(i).getName() + "=" + headerManager.getHeaders().get(i).toString());
+//                }
 //            }
-//        }
-//        final JMeterProperty headersProp = ctx.getProperty("HeaderManager.headers");
-//        if(headersProp != null) {
-//            List o = (List) headersProp.getObjectValue();
-//            logger.info(o.get(0).getClass().getName());
-//            if (o.get(0) instanceof JMeterProperty) {
-//                logger.info("is jp");
-//            }
-////            while (iterator.hasNext()) {
-////                JMeterProperty header = iterator.next();
-////                connection.setRequestProperty(header.getName(), header.getStringValue());
-////                logger.info("added headers from Manager. " + header.getName() + ": " + header.getStringValue());
-////            }
-//        }
+
             if (method.equals("GET")) {
                 connection.connect();
             } else {
@@ -116,6 +128,9 @@ public class AjaxCall implements Callable<AjaxResult> {
         String postData = split.length > 2 ? split[2] : null;
         String headers = split.length > 3 ? split[3] : null;
 
+        if (logger.isDebugEnabled()) {
+            logger.info("Execute " + method + " URL = " + url + " headers = " + headers + " data = " + postData );
+        }
         return execute(method, url, postData, headers, ctx);
     }
 

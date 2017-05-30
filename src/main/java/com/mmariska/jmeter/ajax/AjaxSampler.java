@@ -15,8 +15,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.protocol.http.control.CookieManager;
+import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.java.sampler.JavaSamplerContext;
 import org.apache.jmeter.samplers.AbstractSampler;
+import org.apache.jmeter.protocol.http.sampler.HTTPSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.property.TestElementProperty;
@@ -31,15 +34,17 @@ import org.apache.log.Logger;
  * @author mmariska
  * @version 1.0.0
  */
-public class AjaxSampler extends AbstractSampler {
+public class AjaxSampler extends HTTPSampler {
 
+    public static final String DEBUG_MODE_VARNAME = "AjaxSampler.debug";
     private static final Logger log = LoggingManager.getLoggerForClass();
     private static final String MAX_POOLSIZE_VARNAME = "AjaxSampler.max-concurrent-threads";
     private static final int MAX_CONCURRENT_CHROME_POOL_SIZE = 6;
     private static final String NEWLINE = System.getProperty("line.separator");
     private static final String ARGUMENTS = "AjaxSampler.arguments";
+    private HeaderManager headerManager;
+    private CookieManager cookieManager;
 
-    @Override
     public SampleResult sample(Entry entry) {
         final JavaSamplerContext jctx = new JavaSamplerContext(getArguments());
         Map<String, String> args = getArgsWithExpressions(jctx);
@@ -47,12 +52,15 @@ public class AjaxSampler extends AbstractSampler {
         final int concurrentThreadPoolSize = getThreadPoolSize();
         if (log.isDebugEnabled()) log.debug("Concurent thread pool size = " + concurrentThreadPoolSize);
 
+        this.headerManager = this.getHeaderManager();
+        this.cookieManager = this.getCookieManager();
+        
         SampleResult rv = new SampleResult();
-        rv.setSampleLabel(getName());
+        rv.setSampleLabel(this.getName());
         rv.setDataType(SampleResult.TEXT);
         rv.sampleStart();
         try {
-            results = execute(args, getThreadContext(), entry, concurrentThreadPoolSize);
+            results = execute(args, this.getThreadContext(), entry, concurrentThreadPoolSize);
             boolean hasError = hasResultsErrors(results);
             rv.setSuccessful(!hasError);
             rv.setResponseMessage("AJAX Requests Execution was" + (hasError ? "n't" : "") + " successful");
@@ -81,13 +89,18 @@ public class AjaxSampler extends AbstractSampler {
         return poolSize == null ? MAX_CONCURRENT_CHROME_POOL_SIZE : Integer.valueOf(poolSize);
     }
 
+    /*
+    @Override
     public Arguments getArguments() {
-        return (Arguments) getProperty(ARGUMENTS).getObjectValue();
+        return (Arguments) this.getProperty(ARGUMENTS).getObjectValue();
     }
 
+    @Override
     public void setArguments(Arguments args) {
-        setProperty(new TestElementProperty(ARGUMENTS, args));
+        this.setProperty(new TestElementProperty(ARGUMENTS, args));
     }
+    */
+    
 
     private boolean hasResultsErrors(Collection<AjaxResult> results) {
         for (Iterator<AjaxResult> iterator = results.iterator(); iterator.hasNext();) {
@@ -152,11 +165,13 @@ public class AjaxSampler extends AbstractSampler {
 
     private Collection<AjaxResult> execute(Map<String, String> args, JMeterContext jmeterCtx, Entry e, int concurrentThreadPoolSize) throws InterruptedException, ExecutionException {
         Collection<AjaxResult> results = new LinkedList<AjaxResult>();
+//        log.info("args: " + args.toString());
         final int argsSize = args.values().size();
         ExecutorService executorService = Executors.newFixedThreadPool(Math.min(argsSize, concurrentThreadPoolSize));
         List<Future<AjaxResult>> ajaxCallsFutures = new ArrayList<Future<AjaxResult>>(argsSize);
         for (Map.Entry<String, String> entry : args.entrySet()) {
-            Future<AjaxResult> future = executorService.submit(new AjaxCall(entry.getKey(), entry.getValue(), jmeterCtx, e));
+            if(entry.getKey() == null || entry.getKey().isEmpty() || entry.getValue() == null|| entry.getValue().isEmpty()) continue;
+            Future<AjaxResult> future = executorService.submit(new AjaxCall(entry.getKey(), entry.getValue(), jmeterCtx, e, cookieManager, headerManager));
             ajaxCallsFutures.add(future);
         }
         for (Future<AjaxResult> future : ajaxCallsFutures) {
